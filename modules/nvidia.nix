@@ -15,7 +15,7 @@
     # Use the production driver. Switch to `hardware.nvidia.package =
     # config.boot.kernelPackages.nvidiaPackages.beta;` for beta drivers.
     modesetting.enable = true;
-    #powerManagement.enable = false;   # Set true for laptops with Nvidia
+    powerManagement.enable = true;   # Set true for laptops with Nvidia
     open = false;                     # Use proprietary kernel module
     nvidiaSettings = true;
   };
