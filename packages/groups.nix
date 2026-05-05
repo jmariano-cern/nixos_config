@@ -186,7 +186,7 @@ in
     ];
 
     # ── physics ───────────────────────────────────────────────────────────────
-    colorcal = with pkgs; [
+    physics = with pkgs; [
       root
       python313Packages.qutip
     ];

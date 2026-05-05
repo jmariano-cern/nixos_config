@@ -233,6 +233,11 @@
   # Enable the X11 windowing system.
   services.xserver.enable = true;
 
+  # turn off screensave (x11 only)
+  environment.extraInit = ''
+    xset s off -dpms
+  ''; 
+
   # dwm
   services.xserver.windowManager.dwm.enable = true;
   # use local dwm repo
