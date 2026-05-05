@@ -229,14 +229,25 @@
      };
    };
  };
- # programs.direnv = {
-  #   enable            = true;
-  #   nix-direnv.enable = true;
-  # };
 
- home.activation.cloneNixosConfig = lib.hm.dag.after ["writeBoundary"] ''
-if [ ! -d $HOME/nixos_config ]; then
-  ${pkgs.git}/bin/git clone https://github.com/jmariano-cern/nixos_config $HOME/nixos_config
-fi
-'';
+ home.activation.cloneNixosConfig = lib.hm.dag.entryAfter ["writeBoundary"] ''
+   if [ ! -d $HOME/nixos_config ]; then
+     ${pkgs.git}/bin/git clone https://github.com/jmariano-cern/nixos_config $HOME/nixos_config
+   fi
+ '';
+ 
+ # programs.direnv = {
+ #   enable            = true;
+ #   nix-direnv.enable = true;
+ # };
+
+ # home.activation.cloneNixosConfig = {
+ #   after = [ "writeBoundary" ];
+ #   data = ''
+ #    if [ ! -d $HOME/nixos_config ]; then
+ #      ${pkgs.git}/bin/git clone https://github.com/yourusername/nixos-config $HOME/nixos_config
+ #    fi
+ #  '';
+ # };
+
 }
