@@ -1,0 +1,1981 @@
+#!/run/current-system/sw/bin/bash
+
+# for alias expansion
+shopt -s extglob
+
+##############################
+#                            #
+#       user variables       #
+#                            #
+##############################
+
+# command aliases
+ALIAS_CLIP="clip|cl|c"
+ALIAS_INDEX="index|in|i|list|li"
+ALIAS_GENERATE="generate|gen|ge|g"
+ALIAS_ADD="add|ad|a"
+ALIAS_SHOW="show|sh|s"
+ALIAS_DELETE="delete|del|de|d|rm"
+ALIAS_HELP="help|he|h"
+ALIAS_BACKUP="backup|back|bak|ba|b"
+ALIAS_LOAD="load"
+ALIAS_MERGE="merge|mer|me|m"
+ALIAS_INITIALIZE="initialize|init"
+ALIAS_UNLOCK="unlock|unl|un|u"
+ALIAS_LOCK="lock|lo"
+ALIAS_NOTE="note|no"
+ALIAS_NINDEX="nindex|nind|nin|ni|nlist|nl"
+ALIAS_NDELETE="ndelete|ndel|nd"
+ALIAS_NSHOW="nshow|nsh|ns"
+ALIAS_RANDOM="random|rand|ran|ra|r"
+ALIAS_SOURCECODE="sourcecode"
+
+# home directory
+DEFAULT_HOME_DIR="${HOME}/.upm_home"
+PASSWORD_DIR_NAME=".passwords"
+INDEX_DIR_NAME=".index"
+NOTE_DIR_NAME=".notes"
+NOTE_INDEX_DIR_NAME=".notes_index"
+HASH_SIZE="1"
+
+# gpg settings
+KEY_TYPE="RSA"
+KEY_LENGTH=4096
+KEY_NAME="upm"
+KEY_EXPIRY=0
+GPG_KEY_ID_FILE_NAME=".gpg_key_id"
+GPG_HOME_DIR_NAME=".gpg_home"
+GPG_UNLOCK_FILE_NAME=".gpg_unlock"
+GPG_UNLOCK_FILE_CONTENTS='upm unlocked.'
+LOCK_TIME=0
+UNLOCK_TIME=31425292
+GPG_CONF_FILE_NAME="gpg-agent.conf"
+
+# password generation
+DEFAULT_CHAR_SET="print"
+DEFAULT_LENGTH_CHAR=64
+VALID_CHARSETS=( \
+    "alnum"
+    "alpha"
+    "digit"
+    "graph"
+    "lower"
+    "print"
+    "punct"
+    "upper"
+    "xdigit"
+    )
+    
+# clip
+CLIP_TIMEOUT_SECONDS=10
+#DEFAULT_CLIP_COMMAND='wl-copy -o'
+DEFAULT_CLIP_COMMAND='xsel -t 60000'
+
+# notes
+NOTE_BUFFER_NAME=".notes_buffer"
+DEFAULT_EDITOR="emacs -nw"
+
+# backup
+DEFAULT_BACKUP_FILE='$(dirname ${HOME_DIR})/upm_backup_$(date +%y-%m-%d_%H-%M-%S).tar.bz2'
+
+# random
+RANDOM_DEFAULT_LENGTH=64
+RANDOM_DEFAULT_NUM=1
+RANDOM_DEFAULT_CHARSET="print"
+
+# help formatiing
+INDENT_SIZE=5
+BUFFER_SIZE=2
+SEPARATOR="-- "
+OPT_TAG="*"
+VSPACING=2
+DESCRIPTION_TAG="-"
+FRAME_CHAR="#"
+FRAME_HPAD=2
+FRAME_VPAD=1
+HEADER_STRING="upm: micro password manager"
+ALIASES_HEADER="Aliases:"
+PARAMETERS_HEADER="Parameters:"
+DESCRIPTION_HEADER="Command description:"
+USAGE_HEADER="Usage examples:"
+
+##############################
+#                            #
+#    initialize variables    #
+#                            #
+##############################
+
+HOME_DIR="${UPM_HOME:-${DEFAULT_HOME_DIR}}"
+PASSWORD_DIR="${HOME_DIR}/${PASSWORD_DIR_NAME}"
+INDEX_DIR="${HOME_DIR}/${INDEX_DIR_NAME}"
+NOTE_DIR="${HOME_DIR}/${NOTE_DIR_NAME}"
+NOTE_INDEX_DIR="${HOME_DIR}/${NOTE_INDEX_DIR_NAME}"
+GPG_KEY_ID_FILE="${HOME_DIR}/${GPG_KEY_ID_FILE_NAME}"
+GPG_HOME_DIR="${HOME_DIR}/${GPG_HOME_DIR_NAME}"
+CLIP_COMMAND="${UPM_CLIP_COMMAND:-${DEFAULT_CLIP_COMMAND}}"
+DEFAULT_BACKUP_FILE=$(eval printf \'%s\' \"${DEFAULT_BACKUP_FILE}\")
+GPG_UNLOCK_FILE="${GPG_HOME_DIR}/${GPG_UNLOCK_FILE_NAME}"
+GPG_CONF_FILE="${GPG_HOME_DIR}/${GPG_CONF_FILE_NAME}"
+NOTE_BUFFER="${NOTE_DIR}/${NOTE_BUFFER_NAME}"
+EDITOR="${UPM_EDITOR:-${DEFAULT_EDITOR}}"
+
+##############################
+#                            #
+#         utilties           #
+#                            #
+##############################
+
+# hash_string string
+hash_string() {
+    printf '%s' "${1}" | "sha${HASH_SIZE}sum" | awk '{print $1}'
+}
+
+# verify_entry_ne scope username
+verify_entry_ne() {
+    if [ -e "${PASSWORD_DIR}/$(hash_string ${1})/$(hash_string ${2})" ]
+    then
+	error "Entry ${1} ${2} already exists.
+     Delete it first using 'upm delete ${1} ${2}'."
+    fi
+}
+
+# verify_entry_e scope username
+verify_entry_e() {
+    if [ ! -e "${PASSWORD_DIR}/$(hash_string ${1})/$(hash_string ${2})" ]
+    then
+	error "Entry ${1} ${2} does not exist."
+    fi
+}
+
+# get_lockstate
+get_lockstate() {
+    if [ "$(head -n 1 ${GPG_CONF_FILE} | awk '{ print $2 }')" == "${LOCK_TIME}" ]
+    then
+	printf '%u' 1
+    else
+	printf '%u' 0
+    fi
+}
+
+# check_int int name
+check_int() {
+    if [ ! "${2}" == "" ]
+    then
+	case ${2} in
+	    ''|*[!0-9]*) error "Invalid ${1}: ${2}";;
+	esac
+    fi    
+}
+
+##############################
+#                            #
+#           notes            #
+#                            #
+##############################
+
+# verify_note_e title
+verify_note_e() {
+    if [ ! -e "${NOTE_DIR}/$(hash_string ${1})" ]
+    then
+	error "Note: ${1} does not exist."
+    fi
+}
+
+# init_notes
+init_notes() {
+    mkdir ${NOTE_DIR}
+    mkdir ${NOTE_INDEX_DIR}
+}
+
+# add_to_note_index title
+add_to_note_index() { 
+    set_gpg_recipient
+    printf '%s\n' "${1}" | 
+	gpg --quiet --recipient ${GPG_RECIPIENT} --encrypt --output "${NOTE_INDEX_DIR}/$(hash_string ${1})"
+    printf '%s\n' "Note: ${1} created."
+}
+
+# remove_from_note_index title
+remove_from_note_index() {
+    rm -f "${NOTE_INDEX_DIR}/$(hash_string ${1})"
+    printf '%s\n' "Note: ${1} deleted."
+}
+
+# nindex
+nindex() { 
+    set_gpg_recipient
+    lockstate=$(get_lockstate)
+    if [ "${lockstate}" -eq 1 ]
+    then
+	unlock
+    fi
+    printf '%s\n' "######################"
+    printf '%s\n' "Index of stored notes:"
+    printf '%s\n' "######################"
+    for title in ${NOTE_INDEX_DIR}/*
+    do
+	gpg --quiet --recipient ${GPG_RECIPIENT} --decrypt ${title}
+    done
+    printf '%s\n' "######################"
+    if [ "${lockstate}" -eq 1 ]
+    then
+	lock
+    fi
+}
+
+# ndelete title
+ndelete() {
+    verify_note_e ${1}
+    printf '%s\n' "Are you sure that you want to delete note: ${1}"
+    printf '%s' "     Type 'yes' to confirm: "
+    read -r "confirm"
+    if [ "${confirm}" == "yes" ]
+    then
+	rm -f "${NOTE_DIR}/$(hash_string ${1})"
+	remove_from_note_index ${1}
+    else
+	printf '%s\n' "Note deletion for ${1} aborted."
+    fi
+}
+
+# nshow title
+nshow() {
+    set_gpg_recipient
+    verify_note_e ${1}
+    gpg --quiet --recipient ${GPG_RECIPIENT} --decrypt "${NOTE_DIR}/$(hash_string ${1})"
+}
+
+# note title
+note() {
+    set_gpg_recipient
+    if [ -e "${NOTE_DIR}/$(hash_string ${1})" ]
+    then
+	gpg --quiet --recipient ${GPG_RECIPIENT} --decrypt --output ${NOTE_BUFFER} "${NOTE_DIR}/$(hash_string ${1})"
+	${EDITOR} ${NOTE_BUFFER}
+	gpg --quiet --yes --recipient ${GPG_RECIPIENT} --encrypt --output "${NOTE_DIR}/$(hash_string ${1})" ${NOTE_BUFFER}
+	printf '%s\n' "Note: ${1} saved."
+    else
+	touch ${NOTE_BUFFER}
+	${EDITOR} ${NOTE_BUFFER}
+	if [ $(du ${NOTE_BUFFER} | awk '{ print $1}') -gt 0 ]
+	then
+	    gpg --quiet --yes --recipient ${GPG_RECIPIENT} --encrypt --output "${NOTE_DIR}/$(hash_string ${1})" ${NOTE_BUFFER}
+	    add_to_note_index ${1}
+	else
+	    error "Refusing to save empty note."
+	fi
+    fi
+    shred -z ${NOTE_BUFFER}
+    rm ${NOTE_BUFFER}
+    shred -z ${NOTE_BUFFER}~ > /dev/null 2>&1
+    rm ${NOTE_BUFFER}~ > /dev/null 2>&1
+}
+
+##############################
+#                            #
+#           index            #
+#                            #
+##############################
+
+# add_to_index scope username
+add_to_index() { 
+    set_gpg_recipient
+    mkdir -p "${INDEX_DIR}/$(hash_string ${1})"
+    printf '%s\n' "${1} ${2}" | 
+	gpg --quiet --recipient ${GPG_RECIPIENT} --encrypt --output "${INDEX_DIR}/$(hash_string ${1})/$(hash_string ${2})"
+    printf '%s\n' "Password added for ${1} ${2}"
+}
+
+# remove_from_index scope username
+remove_from_index() {
+    rm -f "${INDEX_DIR}/$(hash_string ${1})/$(hash_string ${2})"
+    rmdir --ignore-fail-on-non-empty "${INDEX_DIR}/$(hash_string ${1})"
+    printf '%s\n' "Password for ${1} ${2} deleted."
+}
+
+# index
+index() {
+    set_gpg_recipient
+    lockstate=$(get_lockstate)
+    if [ "${lockstate}" -eq 1 ]
+    then
+	unlock
+    fi
+    printf '%s\n' "##########################"
+    printf '%s\n' "Index of stored passwords:"
+    printf '%s\n' "##########################"
+    for scope in ${INDEX_DIR}/*
+    do
+	for username in ${scope}/*
+	do
+	    gpg --quiet --recipient ${GPG_RECIPIENT} --decrypt ${username} | tr ":" " "
+	done
+    done
+    printf '%s\n' "##########################"
+    if [ "${lockstate}" -eq 1 ]
+    then
+	lock
+    fi
+}
+
+##############################
+#                            #
+#            add             #
+#                            #
+##############################
+
+# add scope username
+add() {
+    set_gpg_recipient
+    verify_entry_ne "${1}" "${2}"
+    mkdir -p "${PASSWORD_DIR}/$(hash_string ${1})"
+    export IFS=
+    printf '%s' "Enter password: "
+    # quiet typing
+    stty -echo
+    read -r "password"
+    printf '\n'
+    printf '%s' "Re-enter password: "
+    read -r "password_confirm"
+    # regular typing
+    stty echo
+    if [ "${password}" != "${password_confirm}" ];
+    then
+	error "Passwords did not match."
+    fi
+    unset IFS
+    printf '%s\n' "${password}" |    
+	gpg --quiet --recipient ${GPG_RECIPIENT} --encrypt --output "${PASSWORD_DIR}/$(hash_string ${1})/$(hash_string ${2})"
+    unset password
+    add_to_index "${1}" "${2}"
+}
+
+##############################
+#                            #
+#           random           #
+#                            #
+##############################
+
+# generate_random length num char_set
+generate_random() {
+    cat /dev/urandom | tr -cd [:"${3:-${RANDOM_DEFAULT_CHARSET}}":] | fold -w "${1:-${RANDOM_DEFAULT_LENGTH}}" | head -n ${2:-${RANDOM_DEFAULT_NUM}}
+}
+
+# random length num_chars num
+random() {
+    check_int "length" ${1}
+    check_int "num" ${2}
+    check_charset ${3}
+    generate_random ${1} ${2} ${3}
+}
+
+
+##############################
+#                            #
+#         generate           #
+#                            #
+##############################
+
+# check_charset charset
+check_charset() {
+    if [ ! "${1}" == "" ]
+    then
+	if [[ ! " ${VALID_CHARSETS[@]} " =~ " ${1} " ]]
+	then
+	    error "Invalid charset ${1}."
+	fi
+    fi
+}
+
+# generate_string num_chars char_set
+generate_string() {
+    cat /dev/urandom | tr -cd [:"${2:-${DEFAULT_CHAR_SET}}":] | fold -w "${1:-${DEFAULT_LENGTH_CHAR}}" | head -n 1
+}
+
+# generate scope username num_chars char_set
+generate() {
+    check_int "num_chars" ${3}
+    check_charset ${4}
+    set_gpg_recipient
+    verify_entry_ne "${1}" "${2}"
+    mkdir -p "${PASSWORD_DIR}/$(hash_string ${1})"
+    generate_string "${3}" "${4}" |
+	    gpg --quiet --recipient ${GPG_RECIPIENT} --encrypt --output "${PASSWORD_DIR}/$(hash_string ${1})/$(hash_string ${2})"
+    add_to_index "${1}" "${2}"
+}
+
+##############################
+#                            #
+#             gpg            #
+#                            #
+##############################
+
+# gpg_agent_restart
+gpg_agent_restart() {
+    gpg-connect-agent reloadagent /bye > /dev/null 2>&1
+}
+
+# init_gpg_unlock_file
+init_gpg_unlock_file() {
+    set_gpg_recipient
+    printf '%s\n' "${GPG_UNLOCK_FILE_CONTENTS}" | gpg --quiet --recipient ${GPG_RECIPIENT} --encrypt --output ${GPG_UNLOCK_FILE}
+}
+
+# init_lock
+init_lock() {
+    printf '%s\n%s\n%s\n' "default-cache-ttl ${LOCK_TIME}" "max-cache-ttl ${LOCK_TIME}" "pinentry-program /run/current-system/sw/bin/pinentry-tty" > ${GPG_CONF_FILE}
+    gpg_agent_restart
+    printf '%s\n' "upm locked."
+}
+
+# unlock
+unlock() {
+    lockstate=$(get_lockstate)
+    #if [ "${lockstate}" == 0 ]
+    #then
+	#error "upm is already unlocked."
+    #fi
+    set_gpg_recipient
+    printf '%s\n%s\n%s\n' "default-cache-ttl ${UNLOCK_TIME}" "max-cache-ttl ${UNLOCK_TIME}" "pinentry-program /run/current-system/sw/bin/pinentry-tty" > ${GPG_CONF_FILE}
+    gpg_agent_restart
+    gpg --quiet --recipient ${GPG_RECIPIENT} --decrypt "${GPG_UNLOCK_FILE}"
+}
+
+# lock
+lock() {
+    lockstate=$(get_lockstate)
+    #if [ "${lockstate}" == 1 ]
+    #then
+	#error "upm is already locked."
+    #fi
+    printf '%s\n%s\n' "default-cache%s\n-ttl ${LOCK_TIME}" "max-cache-ttl ${LOCK_TIME}" "pinentry-program /run/current-system/sw/bin/pinentry-tty"> ${GPG_CONF_FILE}
+    gpg_agent_restart
+    printf '%s\n' "upm locked."
+}
+
+# init_gpg
+init_gpg() {
+    printf '%s' "Enter password: "
+    # quiet typing
+    stty -echo
+    read -r "password"
+    printf '%s\n'
+    printf '%s' "Re-enter password: "
+    read -r "password_confirm"
+    # regular typing
+    stty echo
+    if [ "${password}" != "${password_confirm}" ];
+    then
+	error "Passwords did not match."
+    fi
+    # note -p means this will create ${HOME_DIR} as well
+    mkdir -p $GNUPGHOME
+    chmod 700 $GNUPGHOME
+    keygen_file=$(mktemp)
+    (cat >${keygen_file} <<EOF && printf '\n' && printf '%s\n' "Generating keys. This may take some time..." && gpg --batch --generate-key ${keygen_file} |& awk '/openpgp-revocs.d\//' | awk -F'openpgp-revocs.d/' '{print $NF}' | awk -F'.rev' '{print $1}' > ${GPG_KEY_ID_FILE}); shred -z ${keygen_file}; rm -f ${keygen_file}
+    Key-Type: ${KEY_TYPE}
+    Key-Length: ${KEY_LENGTH}
+    Name-Real: ${KEY_NAME}
+    Expire-Date: ${KEY_EXPIRY}
+    Passphrase: ${password}
+EOF
+    unset password
+}
+
+# swap_gpg_home
+swap_gpg_home() {
+    export GNUPGHOME_BUFFER=${GNUPGHOME}
+    export GNUPGHOME=${GPG_HOME_DIR}
+}
+
+# revert_gpg_home
+revert_gpg_home() {
+    export GNUPGHOME=${GNUPGHOME_BUFFER}
+}
+
+# get_gpg_key_id
+set_gpg_recipient() {
+    GPG_RECIPIENT=$(cat ${GPG_KEY_ID_FILE})
+}
+
+##############################
+#                            #
+#            init            #
+#                            #
+##############################
+
+# check_init
+check_init() {
+    if [ -e "${GPG_KEY_ID_FILE}" ]
+    then
+	error "upm has already been initialized with home directory at ${HOME_DIR}"
+    fi
+}
+
+# initialize
+initialize() {
+    check_init
+    init_gpg
+    init_gpg_unlock_file
+    init_notes
+    init_lock
+}
+
+##############################
+#                            #
+#          delete            #
+#                            #
+##############################
+
+# delete scope username
+delete() {
+    verify_entry_e ${1} ${2}
+    printf '%s\n' "Are you sure that you want to delete the password for ${1} ${2}?"
+    printf '%s' "     Type 'yes' to confirm: "
+    read -r "confirm"
+    if [ "${confirm}" == "yes" ]
+    then
+	rm -f "${PASSWORD_DIR}/$(hash_string ${1})/$(hash_string ${2})"
+	rmdir --ignore-fail-on-non-empty "${PASSWORD_DIR}/$(hash_string ${1})"
+	remove_from_index ${1} ${2}
+    else
+	printf '%s\n' "Password deletion for ${1} ${2} aborted."
+    fi
+}
+
+##############################
+#                            #
+#           show             #
+#                            #
+##############################
+
+# show scope username
+show() {
+    set_gpg_recipient
+    verify_entry_e "${1}" "${2}"
+    gpg --quiet --recipient ${GPG_RECIPIENT} --decrypt "${PASSWORD_DIR}/$(hash_string ${1})/$(hash_string ${2})"
+}
+
+##############################
+#                            #
+#           clip             #
+#                            #
+##############################
+
+# clip scope username seconds
+clip() {
+    check_int "time" ${3}
+    time=$((${3:-${CLIP_TIMEOUT_SECONDS}}*1000))
+    verify_entry_e "${1}" "${2}"
+    show "${1}" "${2}" | tr -d '\n' | $(eval printf \'%s\' \"${CLIP_COMMAND}\")
+    #printf '%s\n' "Password for ${1} ${2} copied to the clipboard for ${3:-${CLIP_TIMEOUT_SECONDS}} seconds."
+    printf '%s\n' "Password for ${1} ${2} copied to the clipboard (single-paste only)."
+}
+
+##############################
+#                            #
+#           info             #
+#                            #
+##############################
+
+# error message
+error() {
+    printf '%s\n' "ERROR: $1"
+    exit
+}
+
+# print_args_info
+print_args_info() {
+    printf '%s\n' "----------------------------------------------- "
+    printf '\n'
+    printf '%s\n' "A brief explanation of the 'Parameters' section:"
+    printf '\n'
+    printf '%s\n' "-Arguments must be entered in the order given."
+    printf '%s\n' "-Optional arguments are prefaced by an asterix (*)."
+    printf '%s\n' "-Optional arguments are followed by their default value in parenthesis."
+    printf '%s\n' "-If a command takes no arguments, the argument list will be blank."
+    printf '%s\n' "-When referenced in the command description arguments will appear in <angle braces>."
+    printf '\n'
+    printf '%s\n' "----------------------------------------------- "
+}
+
+# print_footer
+print_footer() {
+    printf '%s\n' "     Provided under the GPL."
+    printf '%s\n' "     Coded by Joseph Mariano"
+    printf '%s\n' "          (joseph.mariano@cern.ch)"
+}
+
+# help_general
+help_general() {
+    print_frame ${FRAME_CHAR} ${FRAME_HPAD} ${FRAME_VPAD} ${HEADER_STRING}
+    printf '\n%.0s' $(seq 1 ${VSPACING})
+    printf '%s\n' "For more information about a command use:"
+    printf '%s\n' "     upm help <command>"
+    printf '\n%.0s' $(seq 1 ${VSPACING})
+    printf '%s\n' "Available commands:"
+    printf '%s\n' "     initialize  --initialize a new instance of upm"
+    printf '%s\n' "     generate    --randomly generate a new password"
+    printf '%s\n' "     add         --add a new user defined password"
+    printf '%s\n' "     index       --print index of stored passwords"
+    printf '%s\n' "     show        --display a password"
+    printf '%s\n' "     clip        --copy a password to the clipboard"
+    printf '%s\n' "     unlock      --unlock upm"
+    printf '%s\n' "     lock        --lock upm"
+    printf '%s\n' "     delete      --delete a stored password"
+    printf '%s\n' "     note        --create or edit a note"
+    printf '%s\n' "     nindex      --print index of notes"
+    printf '%s\n' "     nshow       --display a note"
+    printf '%s\n' "     ndelete     --delete a note"
+    printf '%s\n' "     random      --generate random strings"
+    printf '%s\n' "     backup      --create a backup of stored passwords"
+    printf '%s\n' "     load        --load a backup of stored passwords"
+    printf '%s\n' "     merge       --merge a backup into current upm instance"
+    printf '%s\n' "     help        --print command usage"
+    printf '\n%.0s' $(seq 1 ${VSPACING})
+    printf '%s\n' "--------------------------------------------------------"
+    printf '\n'
+    printf '%s\n' "Dependencies:"
+    printf '\n'
+    printf '%s\n' "     emacs  -- The 'note' command uses an editor to edit encrypted notes. The default editor is 'emacs-nox'. See 'help note' for more information about how to use other editors."
+    printf '\n'
+    printf '%s\n' "     gpg    -- upm uses gpg to encrypt and decrypt passwords and indices. Thus gpg is necessary to use upm. gpg version 2.1 is required in order for the lock and unlock functions to work as intended, although most functionality will likely be intact on earlier versions."
+    printf '\n'
+    printf '%s\n' "     xsel   -- The 'clip' command requires a cli based clipboard program to work. The default program is xsel. See 'help clip' for more information about how to use upm with a different program."
+    printf '\n'
+    printf '%s\n' "--------------------------------------------------------"
+    printf '\n%.0s' $(seq 1 ${VSPACING})
+    print_footer
+}
+
+
+# get_array_length array 
+get_array_length() {
+    array=(${@})
+    printf '%u' ${#array[@]}
+}
+
+# get_array_max_length array 
+get_array_max_length() {
+    element_max_length=0
+    for element in ${@}
+    do
+	if [ "${#element}" -gt "${element_max_length}" ]
+	then
+	    element_max_length=${#element}
+	fi
+    done
+    printf '%s' ${element_max_length}
+}
+
+# print_nchar char ntimes
+print_nchar() {
+    printf "%${2}s" | tr " " "${1}"
+}
+
+# get_string_length string
+get_string_length() {
+    string=${@}
+    printf '%s' "${#string}"
+}
+
+# print_frame frame_char pad vpad string
+print_frame() {
+    string=${@:4}
+    length=$(get_string_length ${string})
+    print_nchar ${1} $((${length}+2*${2}+2))
+    printf '\n'
+    i=0
+    while [ "${i}" -lt "${3}" ]
+    do
+	printf '%s' "${1}"
+	print_nchar " " $((${length}+2*${2}))
+	printf '%s' "${1}"
+	printf '\n'
+	i=$((${i}+1))
+    done
+    printf '%s' "${1}"
+    print_nchar " " ${2}
+    printf '%s' "${string}"
+    print_nchar " " ${2}
+    printf '%s' "${1}"
+    printf '\n'
+    i=0
+    while [ "${i}" -lt "${3}" ]
+    do
+	printf '%s' "${1}"
+	print_nchar " " $((${length}+2*${2}))
+	printf '%s' "${1}"
+	printf '\n'
+	i=$((${i}+1))
+    done
+    print_nchar ${1} $((${length}+2*${2}+2))
+    printf '\n'
+}
+
+# print_center string width
+print_center() {
+    diff=$((${2}-${#1}))
+    lpad=$((${diff}/2))
+    print_nchar " " ${lpad}
+    printf '%s\n' "${1}"
+}
+
+# print_aliases command
+print_aliases() {
+    alias_name="\${ALIAS_${1^^}}"
+    alias_string=$(eval printf \'%s\' \"${alias_name}\")
+    export IFS='|'
+    read -r -a alias_array <<< "${alias_string}"
+    unset IFS
+    printf '%s\n' "${ALIASES_HEADER}"
+    indent=$(printf ' %.0s' $(seq 1 ${INDENT_SIZE}))
+    for alias in ${alias_array[@]}
+    do
+	printf '%s%s\n' "${indent}" "${alias}"
+    done
+}
+
+# interleave array1 array2
+interleave() {
+    nel=$((${#@}/2))
+    a1=(${@:1:$((${nel}))})
+    a2=(${@:$((${nel}+1))})
+    i=0
+    while  [ "${i}" -lt "${nel}" ]
+    do
+	printf '%s%s%s%s\n' "${a1[${i}]}" " (" "${a2[${i}]}" ")"
+	i=$((${i}+1))
+    done
+}
+
+# interleave_max array1 array2
+interleave_max() {
+    nel=$((${#@}/2))
+    a1=(${@:1:$((${nel}))})
+    a2=(${@:$((${nel}+1))})
+    max=0
+    i=0
+    while  [ "${i}" -lt "${nel}" ]
+    do
+	x1=${a1[${i}]}
+	x2=${a2[${i}]}
+	l1=${#x1}
+	l2=${#x2}
+	l=$((${l1}+${l2}+3))
+	if [ "${l}" -gt "${max}" ]
+	then
+	    max=${l}
+	fi
+	i=$((${i}+1))
+    done
+    printf '%s' "${max}"
+}
+
+# interleave_length elnum array1 array2
+interleave_length() {
+    nel=$(($((${#@}-1))/2))
+    a1=(${@:2:$((${nel}))})
+    a2=(${@:$((${nel}+2))})
+    nel=${1}
+    x1=${a1[${nel}]}
+    x2=${a2[${nel}]}
+    l1=${#x1}
+    l2=${#x2}
+    l=$((${l1}+${l2}+3))
+    printf '%s' "${l}"
+}
+
+# get_max in1 in2
+get_max() {
+    if [ "${2}" -gt "${1}" ]
+    then
+	printf '%u' ${2}
+    else
+	printf '%u' ${1}
+    fi
+}
+
+# print_parameters command
+print_parameters() {
+    printf '%s\n' "${PARAMETERS_HEADER}"    
+
+    v_par=($(help_${command} 'vital_parameters'))
+    v_descr=$(help_${command} 'vital_parameters_descriptions')
+    export IFS=$'\n'
+    readarray -t v_descr <<< "${v_descr}"
+    unset IFS
+    v_num=$(get_array_length ${v_par[@]})
+    v_max=$(get_array_max_length ${v_par[@]})
+
+    o_par=($(help_${command} 'opt_parameters'))
+    o_descr=$(help_${command} 'opt_parameters_descriptions')
+    export IFS=$'\n'
+    readarray -t o_descr <<< "${o_descr}"
+    unset IFS
+    o_def=($(help_${command} 'opt_parameters_defaults'))
+    export IFS=$'\n'
+    readarray -t o_full <<< "$(interleave ${o_par[@]} ${o_def[@]})"
+    unset IFS
+    o_num=$(get_array_length ${o_par[@]})
+    o_max=$(interleave_max ${o_par[@]} ${o_def[@]})
+    
+    max_length=$(get_max ${v_max} ${o_max})
+
+    v_indent=$(printf ' %.0s' $(seq 1 ${INDENT_SIZE}))
+    i=0
+    while [ "${i}" -lt "${v_num}" ]
+    do
+	element_length=${#v_par[${i}]}
+	padding_size=$((${max_length}+${BUFFER_SIZE}-${element_length}))
+	padding=$(printf ' %.0s' $(seq 1 ${padding_size}))
+	printf '%s%s%s%s%s\n' "${v_indent}" "${v_par[${i}]}" "${padding}" "${SEPARATOR}" "$(printf '%s' "${v_descr[${i}]}" | awk '{$1=$1}1')"
+	i=$((${i}+1))
+    done
+
+    o_indent_size=$((${INDENT_SIZE}-${#OPT_TAG}))
+    o_indent=$(printf ' %.0s' $(seq 1 ${o_indent_size}))
+    i=0
+    while [ "${i}" -lt "${o_num}" ]
+    do
+	element_length=$(interleave_length ${i} ${o_par[@]} ${o_def[@]})
+	padding_size=$((${max_length}+${BUFFER_SIZE}-${element_length}))
+	padding=$(printf ' %.0s' $(seq 1 ${padding_size}))
+	printf '%s%s%s%s%s%s%s%s%s\n' "${o_indent}" "${OPT_TAG}" "${o_par[${i}]}" " (" "${o_def[${i}]}" ")" "${padding}" "${SEPARATOR}" "$(printf '%s' "${o_descr[${i}]}" | awk '{$1=$1}1')"
+	i=$((${i}+1))
+    done
+}
+
+# print_description command
+print_description() {
+    printf '%s\n' "${DESCRIPTION_HEADER}"        
+
+    descr=$(help_${command} 'command_description')
+    export IFS=$'\n'
+    readarray -t descr <<< "${descr}"
+    unset IFS
+    length=${#descr[@]}
+    
+    indent=$(printf ' %.0s' $(seq 1 ${INDENT_SIZE}))
+    i=0
+    while [ "${i}" -lt "${length}" ]
+    do
+	printf '%s%s%s\n' "${indent}" "${DESCRIPTION_TAG}" "$(printf '%s' "${descr[${i}]}" | awk '{$1=$1}1')"
+	#if [ "${i}" -lt "$((${length}-1))" ]
+	#then
+	#    printf '\n'
+	#fi
+	i=$((${i}+1))
+    done    
+}
+
+# print_usage command
+print_usage() {
+    printf '%s\n' "${USAGE_HEADER}"
+
+    usage=$(help_${command} 'usage_examples')
+    export IFS=$'\n'
+    readarray -t usage <<< "${usage}"
+    unset IFS
+    length=${#usage[@]}
+    
+    indent=$(printf ' %.0s' $(seq 1 ${INDENT_SIZE}))
+    i=0
+    while [ "${i}" -lt "${length}" ]
+    do
+	printf '%s%s\n' "${indent}" "$(printf '%s' "${usage[${i}]}" | awk '{$1=$1}1')"
+	i=$((${i}+1))
+    done    
+}
+
+# help_command command
+help_command() {
+    print_frame ${FRAME_CHAR} ${FRAME_HPAD} ${FRAME_VPAD} ${HEADER_STRING}
+    printf '\n'
+    print_center "${1}" $((${#HEADER_STRING}+2*${HPAD}+2))
+    printf '\n%.0s' $(seq 1 ${VSPACING})
+    print_aliases ${1}
+    printf '\n%.0s' $(seq 1 ${VSPACING})
+    print_parameters ${1}
+    printf '\n%.0s' $(seq 1 ${VSPACING})
+    print_description ${1}
+    printf '\n%.0s' $(seq 1 ${VSPACING})
+    print_usage ${1}
+    printf '\n%.0s' $(seq 1 ${VSPACING})
+    print_args_info
+    printf '\n%.0s' $(seq 1 ${VSPACING})
+    print_footer
+}
+
+# help_initialize parameter
+help_initialize() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'initialize' command initializes a new instance of upm. After running the initialize command, upm will prompt the user to create a gpg password which will be used to encrypt and decrypt passwords.
+		   The upm home directory will be created at \${UPM_HOME} (default $HOME/.upm_home).
+		   A standalone gpg home directory will be created at \${UPM_HOME}/${GPG_HOME_DIR_NAME} to store the keys which will be used to encrypt and decrypt passwords. The gpg key ID associated to upm is stored in plaintext in \${UPM_HOME}/${GPG_KEY_ID_FILE_NAME}.
+		   Passwords will be stored encrypted in \${UPM_HOME}/${PASSWORDS_DIR_NAME}. Index files used to keep track of the passwords are stored enrypted in \${UPM_HOME}/${INDEX_DIR_NAME}."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm initialize"
+	    ;;
+    esac
+}
+
+# help_generate parameter
+help_generate() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   "scope
+		   username"
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   "The website, application, etc. to which the password is associated.
+		   The username or account to which the password is associated."
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   "numchars
+		   charset"
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   "The number of characters of the generated password.
+		   The 'tr' charset from which the password will be generated. See below for valid charsets."
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   "64
+		   print"
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'generate' command generates a random password of length <numchars> from the 'tr' character set <charset>. (see 'man tr' for a full explanation)
+		   Valid character sets are:
+		   .....alnum   ---all letters and digits
+		   .....alpha   ---all letters
+		   .....digit   ---all digits	
+		   .....graph   ---all printable characters, not including space
+		   .....lower   ---all lower case letters
+		   .....print   ---all printable characters, including space
+		   .....punct   ---all punctuation characters
+		   .....upper   ---all upper case letters
+		   .....xdigit  --all hexadecimal digits"
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm generate fakemail.com myaccount
+		   upm generate fakemail.com myaccount 32
+		   upm generate fakemail.com myaccount 16 alnum"
+	    ;;
+    esac
+}
+
+# help_add parameter
+help_add() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   "scope
+		   username"
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   "The website, application, etc. to which the password is associated.
+		   The username or account to which the password is associated."
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'initialize' command allows the user to add a new password by hand. The 'add' command will prompt the user to type and then confirm the pa\
+ssword which is to be stored."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm add fakemail.com myaccount"
+	    ;;
+    esac
+}
+
+# help_index parameter
+help_index() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'index' command prints a list of stored passwords."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm index"
+	    ;;
+    esac
+}
+
+# help_show parameter
+help_show() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   "scope
+		   username"
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   "The website, application, etc. to which the password is associated.
+		   The username or account to which the password is associated."
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'show' command prints a password to the terminal."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm show"
+	    ;;
+    esac
+}
+
+# help_clip parameter
+help_clip() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   "scope
+		   username"
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   "The website, application, etc. to which the password is associated.
+		   The username or account to which the password is associated."
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   "time"
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   "The time (in seconds) for the password to remain on the clipboard."
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   "10"
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'clip' command prints temporarily saves a password to the clipboard. After <time> (in seconds) has elapsed, the password will be forgotten.
+		   The clipboard command to be run is determined by \${UPM_CLIP_COMMAND} (default 'xsel -bit \$time'). <time> is passed to the command as \$time."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm clip fakemail.com myaccount
+		   upm clip fakemail.com myaccount 30"
+	    ;;
+    esac
+}
+
+# help_unlock parameter
+help_unlock() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'unlock' command unlocks upm. When upm is unlocked the user will not be prompted for a password when accessing data.
+		   The 'unlock' command can be undone with the 'lock' command."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm unlock"
+	    ;;
+    esac
+}
+
+# help_lock parameter
+help_lock() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'lock' command undoes the 'unlock' command. After running the 'lock' command upm is reverted to the default state in which the user is pro\
+mpted for a password with each access."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm lock"
+	    ;;
+    esac
+}
+
+# help_delete parameter
+help_delete() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   "scope
+		   username"
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   "The website, application, etc. to which the password is associated.
+		   The username or account to which the password is associated."
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'delete' command deletes a stored password from upm. Upon using the command the user will be prompted to confirm the action."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm delete fakemail.com myaccount"
+	    ;;
+    esac
+}
+
+# help_note parameter
+help_note() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   "title"
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   "The title of the note to be created or edited."
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'note' command allows the user to create or edit an encrypted note. The title of the note is given by <title>.
+		   If a note by the name of <title> does not yet exist, a new note will be created. If a note named <title> already exists, upm will allow the user to edit that note.
+  		   The editor to be used when editing a note is given by the \${UPM_EDITOR} variable. The default value is 'emacs -nw'.
+		   The standard 'textfile~' backup will be shredded after editing. Beware that certain editors may maintain buffer files that will, in general, not be encrypted or deleted. The cautious user may want to ensure that the files are properly removed after editing."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm note mynote"
+	    ;;
+    esac
+}
+
+# help_nindex parameter
+help_nindex() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'nindex' command prints a list of stored notes."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm nindex"
+	    ;;
+    esac
+}
+
+# help_nshow parameter
+help_nshow() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   "title"
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   "The title of the note to be printed."
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'nshow' command prints the contents of a note to the terminal."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm nshow mynote"
+	    ;;
+    esac
+}
+
+# help_ndelete parameter
+help_ndelete() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   "title"
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   "The title of the note to be deleted."
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'ndelete' command delete a note."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm ndelete mynote"
+	    ;;
+    esac
+}
+
+# help_random parameter
+help_random() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   "length
+		   number
+		   charset"
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   "length of each random string to be generated in characters
+		   number of random strings to generate
+		   'tr' charset from which to generate random strings. See below for valid charsets."
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   "64
+		   1
+		   print"
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'random' command generates <number> random strings of length <length> characters drawn from 'tr' charset <charset> (see 'man tr' for more details).
+		   Valid character sets are:
+		   .....alnum   ---all letters and digits
+		   .....alpha   ---all letters
+		   .....digit   ---all digits	
+		   .....graph   ---all printable characters, not including space
+		   .....lower   ---all lower case letters
+		   .....print   ---all printable characters, including space
+		   .....punct   ---all punctuation characters
+		   .....upper   ---all upper case letters
+		   .....xdigit  --all hexadecimal digits"
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm random
+		   upm random 32
+		   upm random 32 16
+		   upm random 32 16 alnum"
+	    ;;
+    esac
+}
+
+# help_backup parameter
+help_backup() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   "backup_file"
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   "Location of created backup archive."
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   "\$(dirname \${UPM_HOME})/upm_backup_\$(date +%y-%m-%d_%H-%M-%S).tar.bz2"
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'backup' command creates a .tar.bz2 archive of upm which can be used by the 'load' command to build upm."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm backup
+		   upm backup ./upm_backup.tar.bz2"
+	    ;;
+    esac
+}
+
+# help_load parameter
+help_load() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   "backup_file"
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   "Location of backup archive from which to build upm."
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'load' commands builds a upm instance from a .tar.bz2 archive which has been created on another instance of upm by running the 'backup' command.
+		   Note that like with the 'initialize' command the new upm home directory will be created at \${UPM_HOME} (default \${HOME}/.upm_home)."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm load ./upm_backup.tar.bz2"
+	    ;;
+    esac
+}
+
+# help_merge parameter
+help_merge() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   "backup_file"
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   "Location of backup archive to merge into current instance."
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "The 'merge' command merges the passwords which are stored in a .tar.bz2 backup archive into the current instance of spm. The passwords will be added to the current instance and re-encrypted using the gpg keys of the current instance.
+		   If a password with the same scope and username exists in both the current upm instance and the backup archive, the user will be prompted whether to keep the current password, or overwrite with the archived version.
+		   It is strongly recommended to create a backup of the current upm instance with the 'backup' command before attempting a merger."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm merge ./upm_backup.tar.bz2"
+	    ;;
+    esac
+}
+
+# help_help parameter
+help_help() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   "command"
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   "Command about which to print detailed info."
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "You are on the help page for the help command...
+		   Do you need help?"
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm help
+		   upm help help"
+	    ;;
+    esac
+}
+
+# help_sourcecode parameter
+help_sourcecode() {
+    case "${1}" in
+        "vital_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "vital_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_descriptions")
+	    printf '%s' \
+		   ""
+	    ;;
+        "opt_parameters_defaults")
+	    printf '%s' \
+		   ""
+	    ;;
+        "command_description")
+	    printf '%s' \
+		   "Just for fun. See 'usage examples' for h4x."
+	    ;;
+        "usage_examples")
+	    printf '%s' \
+		   "upm sourcecode
+		   upm sourcecode | less
+		   upm sourcecode | vi -
+		   emacs --insert <(upm sourcecode)"
+	    ;;
+    esac
+}
+
+# help command
+help() {
+    if [ "${1}" == "" ]
+    then
+	help_general
+    else
+	command=$(parse_command ${1})
+	if [ "${command}" == "ERROR" ]
+	then
+	    error "Invalid command '${1}'.
+     Use 'upm help' for a list of valid commands."
+	fi
+	help_command ${command}
+    fi
+}
+
+##############################
+#                            #
+#        arg parsing         #
+#                            #
+##############################
+
+# check_args command num_args num_args_allowed_array
+check_args() {
+    # ${@:3} is all args except first and second
+    # spaces allow for nargs > 9
+    # otherwise e.g. could require 10 but 1 would be accepted
+    if [[ ! " ${@:3} " == *" ${2} "* ]]
+    then
+	error "Wrong number of arguments for command '${1}'.
+     Use 'upm help ${1}' for usage information."
+    fi
+}
+
+##############################
+#                            #
+#           backup           #
+#                            #
+##############################
+
+# backup backup_file
+backup() {
+    tar cjf ${1:-${DEFAULT_BACKUP_FILE}} -C ${HOME_DIR} .
+    printf '%s\n' "Backup created at ${1:-${DEFAULT_BACKUP_FILE}}"
+}
+
+##############################
+#                            #
+#             load           #
+#                            #
+##############################
+
+# verify_home_dir_ne backup_file
+verify_home_dir_ne() {
+    if [ -e "${HOME_DIR}" ]
+    then
+	error "upm home directory already exists at ${HOME_DIR}
+     Use 'upm merge ${1}' to merge the passwords stored in ${1} into ${HOME_DIR}"
+    fi
+}
+
+# load backup_file
+load() {
+    # set UPM_HOME before load!
+    verify_home_dir_ne ${1}
+    mkdir -p ${HOME_DIR}
+    tar -C ${HOME_DIR} -xjf ${1}
+    printf '%s\n' "Created new upm home directory at ${HOME_DIR} from backup file ${1}"
+    init_lock
+}
+
+##############################
+#                            #
+#            merge           #
+#                            #
+##############################
+
+# verify_home_dir_e backup_file
+verify_home_dir_e() {
+    if [ ! -e "${HOME_DIR}" ]
+    then
+	error "upm home directory not found at ${HOME_DIR}
+     Use 'upm load ${1}' to load the backup into a new upm instance."
+    fi
+}
+
+# merge_passwords tmp_home
+merge_passwords() {
+    tmp_gpg_recipient=$(cat "${1}/${GPG_KEY_ID_FILE_NAME}")
+    tmp_gpg_home="${1}/${GPG_HOME_DIR_NAME}"
+    tmp_index_dir="${1}/${INDEX_DIR_NAME}"
+    tmp_password_dir="${1}/${PASSWORD_DIR_NAME}"
+    for encrypted_scope in ${tmp_index_dir}/*
+    do
+	for encrypted_username in ${encrypted_scope}/*
+	do
+	    export GNUPGHOME=${tmp_gpg_home}
+	    creds=$(gpg --quiet --recipient ${tmp_gpg_recipient} --decrypt ${encrypted_username})
+	    scope=$(printf '%s' ${creds} | awk -F: '{print $1}')
+	    username=$(printf '%s' ${creds} | awk -F: '{print $2}')
+	    password=$(gpg --quiet --recipient ${tmp_gpg_recipient} --decrypt "${tmp_password_dir}/$(hash_string ${scope})/$(hash_string ${username})")
+	    swap_gpg_home
+	    set_gpg_recipient
+	    if [ -e "${PASSWORD_DIR}/$(hash_string ${scope})/$(hash_string ${username})" ]
+	    then
+		printf '%s\n' "-----------------------------------------------------------"
+		printf '%s\n' "Entry ${scope} ${username} already exists in current upm home directory (${HOME_DIR}). Do you want to overwrite the entry ${scope} ${username} in ${HOME_DIR} with the entry from ${1}?"
+		printf '%s' "     Type 'yes' or 'no': "
+		read -r "confirm"
+		if [ "${confirm}" == "yes" ]
+		then
+		    printf '%s\n' "Replacing entry ${scope} ${username} in ${HOME_DIR} with entry ${scope} ${username} from ${1}"
+		    printf '%s\n' "${password}" |
+			gpg --quiet --yes --recipient ${GPG_RECIPIENT} --encrypt --output "${PASSWORD_DIR}/$(hash_string ${scope})/$(hash_string ${username})"
+		else
+		    printf '%s\n' "Keeping entry ${scope} ${username} from ${HOME_DIR}"
+		fi
+		printf '%s\n' "-----------------------------------------------------------"
+	    else
+		mkdir -p "${PASSWORD_DIR}/$(hash_string ${scope})"
+		printf '%s\n' "${password}" |    
+			gpg --quiet --recipient ${GPG_RECIPIENT} --encrypt --output "${PASSWORD_DIR}/$(hash_string ${scope})/$(hash_string ${username})"
+		add_to_index "${scope}" "${username}"
+	    fi
+	    unset password
+	    unset scope
+	    unset username	    
+	done
+    done
+}
+
+# merge_notes tmp_home
+merge_notes() {
+    tmp_gpg_recipient=$(cat "${1}/${GPG_KEY_ID_FILE_NAME}")
+    tmp_gpg_home="${1}/${GPG_HOME_DIR_NAME}"
+    tmp_note_index_dir="${1}/${NOTE_INDEX_DIR_NAME}"
+    tmp_note_dir="${1}/${NOTE_DIR_NAME}"
+    for title in ${tmp_note_index_dir}/*
+    do
+	export GNUPGHOME=${tmp_gpg_home}
+	title=$(gpg --quiet --recipient ${tmp_gpg_recipient} --decrypt ${title})
+	note=$(gpg --quiet --recipient ${tmp_gpg_recipient} --decrypt "${tmp_note_dir}/$(hash_string ${title})")
+	swap_gpg_home
+	set_gpg_recipient
+	if [ -e "${NOTE_DIR}/$(hash_string ${title})" ]
+	then
+	    printf '%s\n' "-----------------------------------------------------------"
+	    printf '%s\n' "Note ${title} already exists in current upm home directory (${HOME_DIR}). Do you want to overwrite the note ${title} in ${HOME_DIR} with the entry from ${1}?"
+	    printf '%s' "     Type 'yes' or 'no': "
+	    read -r "confirm"
+	    if [ "${confirm}" == "yes" ]
+	    then
+		printf '%s\n' "Replacing note ${title} in ${HOME_DIR} with note ${title} from ${1}"
+		printf '%s\n' "${note}" |
+		    gpg --quiet --yes --recipient ${GPG_RECIPIENT} --encrypt --output "${NOTE_DIR}/$(hash_string ${title})"
+	    else
+		printf '%s\n' "Keeping note ${title} from ${HOME_DIR}"
+	    fi
+	    printf '%s\n' "-----------------------------------------------------------"
+	else
+	    printf '%s\n' "${note}" |    
+		gpg --quiet --recipient ${GPG_RECIPIENT} --encrypt --output "${NOTE_DIR}/$(hash_string ${title})"
+	    add_to_note_index "${title}"
+	fi
+	unset title
+	unset note
+    done
+}
+
+# merge backup_file
+merge() {
+    verify_home_dir_e ${1}
+    tmp_home=$(mktemp -d)
+    tar -C ${tmp_home} -xjf ${1}
+    merge_passwords ${tmp_home}
+    merge_notes ${tmp_home}
+    rm -rf ${tmp_home}
+}
+
+##############################
+#                            #
+#         sourcecode         #
+#                            #
+##############################
+
+# sourcecode
+sourcecode() {
+    cat realpath $0
+}
+
+
+##############################
+#                            #
+#        parse_command       #
+#                            #
+##############################
+
+# parse_command command
+parse_command() {
+    case "${1}" in
+    @(${ALIAS_CLIP}))
+	command="clip"
+	;;
+    @(${ALIAS_SHOW}))
+	command="show"
+	;;
+    @(${ALIAS_GENERATE}))
+	command="generate"
+	;;
+    @(${ALIAS_ADD}))
+	command="add"
+	;;
+    @(${ALIAS_DELETE}))
+	command="delete"
+	;;
+    @(${ALIAS_INDEX}))
+	command="index"
+	;;
+    @(${ALIAS_HELP}))
+	command="help"
+	;;
+    @(${ALIAS_INITIALIZE}))
+	command="initialize"
+	;;
+    @(${ALIAS_BACKUP}))
+	command="backup"
+	;;
+    @(${ALIAS_LOAD}))
+	command="load"
+	;;
+    @(${ALIAS_MERGE}))
+	command="merge"
+	;;
+    @(${ALIAS_UNLOCK}))
+	command="unlock"
+	;;
+    @(${ALIAS_LOCK}))
+	command="lock"
+	;;
+    @(${ALIAS_NOTE}))
+	command="note"
+	;;
+    @(${ALIAS_NINDEX}))
+	command="nindex"
+	;;
+    @(${ALIAS_NDELETE}))
+	command="ndelete"
+	;;
+    @(${ALIAS_NSHOW}))
+	command="nshow"
+	;;
+    @(${ALIAS_RANDOM}))
+	command="random"
+	;;
+    @(${ALIAS_SOURCECODE}))
+	command="sourcecode"
+	;;
+    *)
+	command="ERROR"
+	;;
+esac
+printf '%s' "${command}"
+}
+
+# get_nargs command
+get_nargs() {
+case "${1}" in
+    @(${ALIAS_CLIP}))
+	num_args="3 4"
+	;;
+    @(${ALIAS_SHOW}))
+	num_args="3"
+	;;
+    @(${ALIAS_GENERATE}))
+	num_args="3 4 5"
+	;;
+    @(${ALIAS_ADD}))
+	num_args="3"
+	;;
+    @(${ALIAS_DELETE}))
+	num_args="3"
+	;;
+    @(${ALIAS_INDEX}))
+	num_args="1"
+	;;
+    @(${ALIAS_HELP}))
+	num_args="1 2"
+	;;
+    @(${ALIAS_INITIALIZE}))
+	num_args="1"
+	;;
+    @(${ALIAS_BACKUP}))
+	num_args="1 2"
+	;;
+    @(${ALIAS_LOAD}))
+	num_args="2"
+	;;
+    @(${ALIAS_MERGE}))
+	num_args="2"
+	;;
+    @(${ALIAS_UNLOCK}))
+	num_args="1"
+	;;
+    @(${ALIAS_LOCK}))
+	num_args="1"
+	;;
+    @(${ALIAS_NOTE}))
+	num_args="2"
+	;;
+    @(${ALIAS_NINDEX}))
+	num_args="1"
+	;;
+    @(${ALIAS_NDELETE}))
+	num_args="2"
+	;;
+    @(${ALIAS_NSHOW}))
+	num_args="2"
+	;;
+    @(${ALIAS_RANDOM}))
+	num_args="1 2 3 4"
+	;;
+    @(${ALIAS_SOURCECODE}))
+	num_args="1"
+	;;
+esac
+printf '%s' "${num_args[@]}"
+}
+
+##############################
+#                            #
+#           main             #
+#                            #
+##############################
+			   
+# swap to local gpg
+swap_gpg_home
+# check commmand
+command=$(parse_command ${1})
+if [ "${command}" == "ERROR" ]
+then
+	error "Invalid command '${1}'.
+     Use 'upm help' for a list of valid commands."
+fi
+nargs=($(get_nargs ${1}))
+# check num args
+check_args ${command} $# ${nargs[@]}
+# run command
+${command} ${@:2}
+# revert to system gpg
+revert_gpg_home
+
+# bugs
+# fix shopt posix
+# entering password unlocks
+# check for xsel and gpg
+# errors get piped into xsel as well
+# add option to generate random username
+# change either the lsit format or the entry format so that you can copypaste from list
+# which character to use as a separator?
+# probably space because we can assume that the username won't contain it.
+# add groups and option to list by group
+

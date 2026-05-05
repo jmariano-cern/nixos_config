@@ -1,0 +1,12 @@
+#!/run/current-system/sw/bin/bash
+
+if [ "${1}" == "r" ]
+then
+    dispwin -d 1 -c
+    dispwin -d 2 -c
+    dispwin -d 3 -c
+else    
+    dispwin -d 1 ~/monitor_calibration/profile_HDMI-0.icc
+    dispwin -d 2 ~/monitor_calibration/profile_DP-2.icc
+    dispwin -d 3 ~/monitor_calibration/profile_HDMI-1.icc
+fi

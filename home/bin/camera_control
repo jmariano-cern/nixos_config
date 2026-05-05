@@ -1,0 +1,109 @@
+#!/run/current-system/sw/bin/bash
+
+process_choice ()
+{
+    NAME=${1}
+    CFG_PATH=${2}
+    CURRENT=$(gphoto2 --get-config=${CFG_PATH} | grep Current | awk '{print $2}')
+    CHOICES=()
+    printf "Current %s: %s\n" "${NAME}" "${CURRENT}"
+    read -p "New ${NAME}: " NEW_CHOICE
+    for CHOICE in $(gphoto2 --get-config=${CFG_PATH} | grep "Choice"| awk '{print $3}')
+    do
+	if [ "${NEW_CHOICE}" == "?" ]
+	then
+	    printf "%s " "${CHOICE}"
+	fi
+	CHOICES+=(${CHOICE})
+    done
+    if [ "${NEW_CHOICE}" == "?" ]
+    then
+	printf "\n"
+	read -p "New ${NAME}: " NEW_CHOICE
+    fi
+    if [ "${NEW_CHOICE}" == "" ]
+    then
+	NEW_CHOICE=${CURRENT}
+    fi
+    COUNT=0
+    GOT=0
+    for CHOICE in ${CHOICES[@]}
+    do
+	if [ "${CHOICE}" == "${NEW_CHOICE}" ]
+	then
+	    GOT=1
+	    break
+	fi
+	COUNT=$((${COUNT}+1))
+    done
+    if [ "${GOT}" == "1" ]
+    then
+	gphoto2 --set-config=${CFG_PATH}=${COUNT}
+    else
+	printf "ERROR -- invalid %s: %s\n" "${NAME}" "${NEW_CHOICE}"
+	gphoto2 --get-config=${CFG_PATH}
+    fi
+}
+
+print_setting()
+{
+    NAME=${1}
+    CFG_PATH=${2}
+    printf "${NAME}: %s\n" "$(gphoto2 --get-config=${CFG_PATH} | grep Current | awk '{print $2}')"
+}
+
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<,
+preview()
+{
+    gphoto2 --capture-preview
+    imv capture_preview.jpg
+    rm -fv capture_preview.jpg
+}
+
+if [ "${1}" == "-l" ]
+then 
+    gphoto2 --get-config=/main/capturesettings/shutterspeed
+    gphoto2 --get-config=/main/capturesettings/aperture
+    gphoto2 --get-config=/main/imgsettings/iso
+    gphoto2 --get-config=/main/imgsettings/whitebalance
+elif [ "${1}" == "-c" ]
+then 
+    print_setting "shutter speed" "/main/capturesettings/shutterspeed"
+    print_setting "aperture"      "/main/capturesettings/aperture"
+    print_setting "ISO"           "/main/imgsettings/iso"
+    print_setting "white balance" "/main/imgsettings/whitebalance"
+elif [ "${1}" == "-s" ]
+then
+    process_choice "shutter speed" "/main/capturesettings/shutterspeed"
+    process_choice "aperture"      "/main/capturesettings/aperture"
+    process_choice "ISO"           "/main/imgsettings/iso"
+    process_choice "white balance" "/main/imgsettings/whitebalance"
+    preview
+elif [ "${1}" == "-b" ]
+then
+    gphoto2 --stdout autofocusdrive=0 --capture-movie | ffmpeg -i - -vcodec rawvideo -pix_fmt yuv420p -threads 0 -f v4l2 /dev/video0
+elif [ "${1}" == "-f" ]
+then
+    if [ ${2} -le 0 ]
+       then
+	   N=$((-1*${2}))
+	   V=6
+    else
+	N=${2}
+	V=2
+    fi
+    COUNT=0
+    echo ${N}
+    echo ${V}
+    while [ ${COUNT} -lt ${N} ]
+    do
+	echo "yes"
+	gphoto2 --set-config /main/actions/viewfinder=1 --set-config=/main/actions/manualfocusdrive=${V}
+	COUNT=$((${COUNT}+1))
+	sleep 0.1
+    done
+    preview
+elif [ "${1}" == "-p" ]
+then
+    preview
+fi
