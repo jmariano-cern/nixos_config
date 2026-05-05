@@ -13,13 +13,13 @@
   ];
 
   environment.systemPackages =
-    groups.media
+    groups.x11
     ++ groups.web
+    ++ groups.media
     ++ groups.photo
     ++ groups.editing
     ++ groups.audio
     ++ groups.programming
-    ++ groups.x11
     ++ groups.latex
     ++ groups.printing_3d
     ++ groups.modelling_3d

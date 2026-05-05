@@ -1,7 +1,7 @@
-# hosts/laptop/default.nix
+# hosts/editing/default.nix
 #
-# Personal laptop — games, no Nvidia, laptop power management.
-# Build with: sudo nixos-rebuild switch --flake .#laptop
+# Editing/production machine — video editing packages + Nvidia drivers.
+# Build with: sudo nixos-rebuild switch --flake .#editing
 #
 { config, pkgs, lib, groups, ... }:
 
@@ -9,21 +9,21 @@
   networking.hostName = "laptop";
 
   environment.systemPackages =
-    groups.sysTools
-    ++ groups.games
-    ++ groups.desktopUtils
-    ++ groups.laptopUtils
+    groups.x11
+    ++ groups.web
+    ++ groups.media
+    ++ groups.colorcal
     # Add individual packages specific to this machine below:
     ++ (with pkgs; [
-      # spotify
+      # blender
     ]);
 
-  # ── Laptop power management ──────────────────────────────────────────────
-  services.tlp.enable        = true;
-  services.thermald.enable   = true;  # Intel thermal daemon
+  # Large /tmp on tmpfs is useful for video scratch space
+  # boot.tmp = {
+  #   useTmpfs   = true;
+  #   tmpfsSize  = "16G";
+  # };
 
-  # Suspend on lid close
-  services.logind.lidSwitch = "suspend";
-
-  # No Nvidia — nvidia.nix is simply not imported here
+  # DO NOT CHANGE
+  system.stateVersion = "25.05";
 }

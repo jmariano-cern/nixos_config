@@ -84,6 +84,7 @@ in
       qutebrowser
       yt-dlp
       oath-toolkit
+      krb5
     ];
     
     # ── Photo ─────────────────────────────────────────────────────────────────
@@ -115,7 +116,7 @@ in
     
     # ── Programming ──────────────────────────────────────────────────────────
     programming = with pkgs; [
-      python3
+      python313
       gnumake
       gcc
       cmake
@@ -182,6 +183,12 @@ in
     colorcal = with pkgs; [
       argyllcms
       colord
+    ];
+
+    # ── physics ───────────────────────────────────────────────────────────────
+    colorcal = with pkgs; [
+      root
+      python313Packages.qutip
     ];
 
   };

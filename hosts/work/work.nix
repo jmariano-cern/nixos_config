@@ -1,7 +1,7 @@
-# hosts/work/default.nix
+# hosts/editing/default.nix
 #
-# Work machine — programming packages, no Nvidia.
-# Build with: sudo nixos-rebuild switch --flake .#work
+# Editing/production machine — video editing packages + Nvidia drivers.
+# Build with: sudo nixos-rebuild switch --flake .#editing
 #
 { config, pkgs, lib, groups, ... }:
 
@@ -9,17 +9,24 @@
   networking.hostName = "work";
 
   environment.systemPackages =
-    groups.sysTools
+    groups.x11
+    ++ groups.web
     ++ groups.programming
-    ++ groups.desktopUtils
+    ++ groups.latex
+    ++ groups.printing_3d
+    ++ groups.modelling_3d
+    ++ groups.physics
     # Add individual packages specific to this machine below:
     ++ (with pkgs; [
-      # slack
-      # zoom-us
+      # blender
     ]);
 
-  # Docker daemon — useful on a dev machine
-  virtualisation.docker.enable = true;
+  # Large /tmp on tmpfs is useful for video scratch space
+  # boot.tmp = {
+  #   useTmpfs   = true;
+  #   tmpfsSize  = "16G";
+  # };
 
-  # No Nvidia — nvidia.nix is simply not imported here
+  # DO NOT CHANGE
+  system.stateVersion = "25.05";
 }
