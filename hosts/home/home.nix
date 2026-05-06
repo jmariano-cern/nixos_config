@@ -8,6 +8,12 @@
 {
   networking.hostName = "home";
 
+  myUsers = [
+    "begonia"
+    "youruser"
+    "testuser"
+  ];
+  
   imports = [
     ../../modules/nvidia.nix   # Pull in Nvidia drivers for this host only
   ];

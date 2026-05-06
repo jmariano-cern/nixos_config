@@ -44,17 +44,7 @@
 
           # Home Manager
           home-manager.nixosModules.home-manager
-          {
-            home-manager.useGlobalPkgs    = true;
-            home-manager.useUserPackages  = true;
-            home-manager.backupFileExtension  = "backup";
-            home-manager.users.youruser   = {
-              imports = [
-                ./home/youruser.nix
-                ./home/hosts/${hostname}.nix
-              ];
-            };
-          }
+          ./modules/home-manager.nix
         ];
       };
 
