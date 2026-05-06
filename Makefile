@@ -8,10 +8,14 @@
 #   make optimise          # optimise the nix store
 #   make clean             # gc + optimise
 
+CORES   ?= $(shell echo $$(( $$(nproc) / 4 < 1 ? 1 : $$(nproc) / 4 )))
+MAXJOBS ?= $(shell echo $$(( $$(nproc) / 2 < 1 ? 1 : $$(nproc) / 2 )))
+NIXOPTS  = --option cores $(CORES) --option max-jobs $(MAXJOBS)
+
 HOST ?= $(shell hostname)
 FLAKE = .#$(HOST)
 
-.PHONY: switch dry boot update update-input gc optimise clean hardware-config diff history rollback git-check tidy
+.PHONY: switch dry boot update update-input gc optimise clean hardware-config diff history rollback git-check tidy upgrade
 
 # ── Git checks ─────────────────────────────────────────────────────────────────────────────
 
@@ -55,8 +59,10 @@ git-check: tidy
 
 # ── Rebuild ──────────────────────────────────────────────────────────────────────────────
 
+upgrade: update switch
+
 switch: git-check
-	sudo nixos-rebuild switch --flake $(FLAKE)
+	sudo nixos-rebuild switch --flake $(FLAKE) $(NIXOPTS)
 
 dry: git-check
 	sudo nixos-rebuild dry-activate --flake $(FLAKE)
