@@ -16,32 +16,42 @@ FLAKE = .#$(HOST)
 # ── Git checks ─────────────────────────────────────────────────────────────────────────────
 
 git-check:
-	@if [ -n "$$(git ls-files --others --exclude-standard)" ]; then \
-		echo "Warning: untracked files (invisible to nix flake):"; \
-		git ls-files --others --exclude-standard; \
-		echo ""; \
-	fi
-	@if ! git diff --quiet || ! git diff --cached --quiet; then \
-		echo "Warning: unstaged or uncommitted changes:"; \
-		git status --short; \
-		echo ""; \
-		read -p "Build anyway? [y/N] " ans && \
-		if [ "$$ans" != "y" ] && [ "$$ans" != "Y" ]; then \
-			echo "Aborted."; \
-			exit 1; \
-		fi \
-	else \
-		git fetch --quiet 2>/dev/null; \
-		if [ -n "$$(git log HEAD..@{u} --oneline 2>/dev/null)" ]; then \
-			echo "Remote has new commits:"; \
-			git log HEAD..@{u} --oneline; \
-			echo ""; \
-			read -p "Pull before building? [y/N] " ans && \
-			if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then \
-				git pull; \
-			fi \
-		fi \
-	fi
+	@{ \
+	  UNTRACKED=$$(git ls-files --others --exclude-standard); \
+	  UNSTAGED=$$(git diff --name-only); \
+	  UNCOMMITTED=$$(git diff --cached --name-only); \
+	  PROMPT=0; \
+	  if [ -n "$$UNTRACKED" ]; then \
+	    echo "Warning: untracked files (invisible to nix flake):"; \
+	    echo "$$UNTRACKED"; \
+	    echo ""; \
+	    PROMPT=1; \
+	  fi; \
+	  if [ -n "$$UNSTAGED" ] || [ -n "$$UNCOMMITTED" ]; then \
+	    echo "Warning: unstaged or uncommitted changes:"; \
+	    git status --short; \
+	    echo ""; \
+	    PROMPT=1; \
+	  fi; \
+	  if [ "$$PROMPT" = "1" ]; then \
+	    read -p "Build anyway? [y/N] " ans; \
+	    if [ "$$ans" != "y" ] && [ "$$ans" != "Y" ]; then \
+	      echo "Aborted."; \
+	      exit 1; \
+	    fi; \
+	  else \
+	    git fetch --quiet 2>/dev/null; \
+	    if [ -n "$$(git log HEAD..@{u} --oneline 2>/dev/null)" ]; then \
+	      echo "Remote has new commits:"; \
+	      git log HEAD..@{u} --oneline; \
+	      echo ""; \
+	      read -p "Pull before building? [y/N] " ans; \
+	      if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then \
+	        git pull; \
+	      fi; \
+	    fi; \
+	  fi; \
+	}
 
 # ── Rebuild ──────────────────────────────────────────────────────────────────────────────
 
