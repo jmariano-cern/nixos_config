@@ -11,11 +11,11 @@
 HOST ?= $(shell hostname)
 FLAKE = .#$(HOST)
 
-.PHONY: switch dry boot update update-input gc optimise clean hardware-config diff history rollback git-check
+.PHONY: switch dry boot update update-input gc optimise clean hardware-config diff history rollback git-check tidy
 
 # ── Git checks ─────────────────────────────────────────────────────────────────────────────
 
-git-check:
+git-check: tidy
 	@{ \
 	  UNTRACKED=$$(git ls-files --others --exclude-standard); \
 	  UNSTAGED=$$(git diff --name-only); \
@@ -66,11 +66,11 @@ boot: git-check
 
 # ── Flake inputs ──────────────────────────────────────────────────────────────────────────
 
-update:
+update: tidy
 	nix flake update
 	@echo "Run 'make switch' to apply updated inputs."
 
-update-input:
+update-input: tidy
 	nix flake update $(INPUT)
 
 # ── Maintenance ───────────────────────────────────────────────────────────────────────────
@@ -84,8 +84,11 @@ optimise:
 	sudo nix store optimise
 	@echo "Nix store usage:"; du -sh /nix/store
 
-clean: gc optimise
+clean: tidy gc optimise
 	@echo "Nix store usage:"; du -sh /nix/store
+
+tidy:
+	find . -name "*~" -type f -delete
 
 # ── New machine setup ────────────────────────────────────────────────────────────────────
 
