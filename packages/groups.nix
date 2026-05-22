@@ -116,10 +116,13 @@ in
     
     # ── Programming ──────────────────────────────────────────────────────────
     programming = with pkgs; [
-      python313
+      #python313
       gnumake
       gcc
       cmake
+      (python3.withPackages (python-pkgs: with python-pkgs; [
+        validators
+      ]))
     ];
 
     # ── Games ────────────────────────────────────────────────────────────────
@@ -188,7 +191,7 @@ in
     # ── physics ───────────────────────────────────────────────────────────────
     physics = with pkgs; [
       root
-      python313Packages.qutip
+      #python313Packages.qutip
     ];
 
   };
