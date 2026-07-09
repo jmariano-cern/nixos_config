@@ -112,7 +112,7 @@ in
     audio = with pkgs; [
       unstable.audacity
       cardinal
-      vcv-rack
+      # vcv-rack # broken?
       vkeybd
       # vmpk
       # reaper
