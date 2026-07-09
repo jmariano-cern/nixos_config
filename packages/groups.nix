@@ -112,6 +112,9 @@ in
     audio = with pkgs; [
       unstable.audacity
       cardinal
+      vcv-rack
+      vkeybd
+      # vmpk
       # reaper
     ];
     
