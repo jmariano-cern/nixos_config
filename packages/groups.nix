@@ -111,6 +111,7 @@ in
     # 
     audio = with pkgs; [
       unstable.audacity
+      cardinal
       # reaper
     ];
     
@@ -124,6 +125,7 @@ in
         validators
         numpy
         tabulate
+        xlib
       ]))
     ];
 
@@ -154,7 +156,7 @@ in
       xsel
       redshift
       alacritty
-      xsel
+      xsel      
     ];
     
     # ── wayland ───────────────────────────────────────────────────────────────
