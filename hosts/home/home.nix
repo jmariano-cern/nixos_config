@@ -22,14 +22,14 @@
     groups.x11
     ++ groups.web
     ++ groups.media
-    ++ groups.photo
-    ++ groups.editing
+    #++ groups.photo
+    #++ groups.editing
     ++ groups.audio
     ++ groups.programming
-    ++ groups.latex
-    ++ groups.printing_3d
-    ++ groups.modelling_3d
-    ++ groups.colorcal
+    #++ groups.latex
+    #++ groups.printing_3d
+    #++ groups.modelling_3d
+    #++ groups.colorcal
     # Add individual packages specific to this machine below:
     ++ (with pkgs; [
       # blender

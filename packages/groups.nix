@@ -47,7 +47,7 @@ in
       pinentry-tty
       xremap
       parted
-      nvtopPackages.nvidia
+      #nvtopPackages.nvidia # WHY IN BASE?
       usbutils
       psmisc # killall
       tree
@@ -121,7 +121,7 @@ in
     # ── Programming ──────────────────────────────────────────────────────────
     programming = with pkgs; [
       #python313
-      gnumake
+      gnumake # MOVE TO BASIC
       gcc
       cmake
       (python3.withPackages (python-pkgs: with python-pkgs; [
