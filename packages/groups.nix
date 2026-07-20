@@ -13,7 +13,7 @@
 #       ++ [ pkgs.someExtraPackage ];
 #   }
 #
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, inputs, ... }:
 
 # let localSt = pkgs.st.overrideAttrs (old: {
 #       src = /home/begonia/st; # change this to something less hardcode-y
@@ -47,7 +47,7 @@ in
       pinentry-tty
       xremap
       parted
-      #nvtopPackages.nvidia # WHY IN BASE?
+      nvtopPackages.nvidia # WHY IN BASE?
       usbutils
       psmisc # killall
       tree
@@ -64,6 +64,8 @@ in
       ncdu            # disk usage explorer
       duf             # modern df
       freshfetch
+      gnumake
+      ranger
     ];
 
     # ── Media ─────────────────────────────────────────────────────────────────
@@ -82,6 +84,7 @@ in
     web = with pkgs; [
       firefox
       qutebrowser
+      inputs.qbpm.packages.${pkgs.system}.default
       yt-dlp
       oath-toolkit
       krb5
@@ -112,7 +115,7 @@ in
     audio = with pkgs; [
       unstable.audacity
       cardinal
-      # vcv-rack # broken?
+      # unstable.vcv-rack # broken
       vkeybd
       # vmpk
       # reaper
@@ -121,7 +124,6 @@ in
     # ── Programming ──────────────────────────────────────────────────────────
     programming = with pkgs; [
       #python313
-      gnumake # MOVE TO BASIC
       gcc
       cmake
       (python3.withPackages (python-pkgs: with python-pkgs; [
@@ -129,6 +131,9 @@ in
         numpy
         tabulate
         xlib
+        adblock
+        matplotlib
+        sounddevice
       ]))
     ];
 

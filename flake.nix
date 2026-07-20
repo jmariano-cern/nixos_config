@@ -9,6 +9,11 @@
       url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    qbpm = {
+      url = "github:pvsr/qbpm";
+      inputs.nixpkgs.follows = "nixpkgs";  # use your nixpkgs, not its own
+    };    
   };
 
   outputs = { self, nixpkgs, nixpkgs-unstable, home-manager, ... }@inputs:
