@@ -65,7 +65,8 @@ in
       duf             # modern df
       freshfetch
       gnumake
-      ranger
+      #ranger
+      dmidecode
     ];
 
     # ── Media ─────────────────────────────────────────────────────────────────
