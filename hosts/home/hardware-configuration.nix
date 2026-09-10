@@ -53,6 +53,11 @@
       fsType = "ext4";
     };
 
+  fileSystems."/data2" =
+    { device = "/dev/disk/by-uuid/3850d060-cbc2-4fa5-ae8e-8f8cf1f381b0";
+      fsType = "ext4";
+    };
+
   fileSystems."/boot" =
     { device = "/dev/disk/by-uuid/7113-79B0";
       fsType = "vfat";

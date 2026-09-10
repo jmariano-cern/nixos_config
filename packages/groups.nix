@@ -79,6 +79,7 @@ in
       mediainfo
       imv
       qrencode
+      imagemagick
     ];
     
     # ── Web ─────────────────────────────────────────────────────────────────
@@ -121,6 +122,8 @@ in
       vkeybd
       # vmpk
       # reaper
+      rubberband
+      demucs-rs
     ];
     
     # ── Programming ──────────────────────────────────────────────────────────
