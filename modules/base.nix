@@ -96,11 +96,13 @@
   };
 
   # Use latest kernel.
-  boot.kernelPackages = pkgs.linuxPackages_latest;
+  #boot.kernelPackages = pkgs.linuxPackages_latest;
+  boot.kernelPackages = pkgs.linuxPackages_7_1; # HACKFIX bc nvidia sux
   #                      webcam         xremap
   boot.kernelModules = [ "v4l2loopback" "uinput" ];
   # needed for webcam
-  boot.extraModulePackages = [ pkgs.linuxPackages_latest.v4l2loopback ];
+  #boot.extraModulePackages = [ pkgs.linuxPackages_latest.v4l2loopback ];
+  boot.extraModulePackages = [ pkgs.linuxPackages_7_1.v4l2loopback ]; # HACKFIX bc nvidia sux
   
   # Hostname is set per-host in hosts/<name>/default.nix
   networking.networkmanager.enable = true;
