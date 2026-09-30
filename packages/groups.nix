@@ -85,7 +85,7 @@ in
     # ── Web ─────────────────────────────────────────────────────────────────
     # 
     web = with pkgs; [
-      firefox
+      unstable.firefox
       qutebrowser
       inputs.qbpm.packages.${pkgs.system}.default
       yt-dlp
