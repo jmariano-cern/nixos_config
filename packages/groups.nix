@@ -85,6 +85,7 @@ in
     # ── Web ─────────────────────────────────────────────────────────────────
     # 
     web = with pkgs; [
+      ungoogled-chromium
       unstable.firefox
       qutebrowser
       inputs.qbpm.packages.${pkgs.system}.default
