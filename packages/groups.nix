@@ -80,6 +80,7 @@ in
       imv
       qrencode
       imagemagick
+      exiftool
     ];
     
     # ── Web ─────────────────────────────────────────────────────────────────
@@ -140,6 +141,8 @@ in
         adblock
         matplotlib
         sounddevice
+        pillow
+        reportlab
       ]))
     ];
 
