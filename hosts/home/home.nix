@@ -16,6 +16,7 @@
   
   imports = [
     ../../modules/nvidia.nix   # Pull in Nvidia drivers for this host only
+    ../../modules/home-manager.nix
   ];
 
   environment.systemPackages =
